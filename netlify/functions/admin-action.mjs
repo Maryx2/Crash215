@@ -30,6 +30,31 @@ export default async(req)=>{
     await audit('ADJUST_HIGH_NOTES_TOKENS',b.userId,{before,delta,after});
     return json({ok:true,balance:after});
   }
+  if(action==='refresh_player_stats'){
+    if(!b.userId)return json({error:'Missing userId'},400);
+    const id=encodeURIComponent(b.userId);
+    const playerRows=await rest(`profiles?select=launches,ejects,failures,total_score,best_score,best_multiplier,current_streak,best_streak,total_play_ms,xp,level,high_notes_tokens&user_id=eq.${id}&limit=1`,'GET');
+    if(!playerRows?.[0])return json({error:'Player not found'},404);
+    const before=playerRows[0];
+    const runs=[];let offset=0;
+    while(true){
+      const page=await rest(`runs?select=outcome,multiplier,score,duration_ms,created_at&user_id=eq.${id}&order=created_at.asc&limit=1000&offset=${offset}`,'GET');
+      if(Array.isArray(page))runs.push(...page);
+      if(!Array.isArray(page)||page.length<1000)break;
+      offset+=1000;
+      if(offset>=100000)throw new Error('Player has too many runs to refresh safely in one request');
+    }
+    let ejects=0,failures=0,totalScore=0,bestScore=0,bestMultiplier=1,totalPlayMs=0,currentStreak=0,bestStreak=0;
+    for(const r of runs){
+      const outcome=String(r.outcome||'');const score=Math.max(0,Number(r.score)||0);const mult=Math.max(1,Number(r.multiplier)||1);const duration=Math.max(0,Number(r.duration_ms)||0);
+      if(outcome==='EJECT'){ejects++;currentStreak++;bestStreak=Math.max(bestStreak,currentStreak)}else if(outcome==='FAIL'){failures++;currentStreak=0}
+      totalScore+=score;bestScore=Math.max(bestScore,score);bestMultiplier=Math.max(bestMultiplier,mult);totalPlayMs+=duration;
+    }
+    const patch={launches:runs.length,ejects,failures,total_score:Math.round(totalScore),best_score:Math.round(bestScore),best_multiplier:Number(bestMultiplier.toFixed(2)),current_streak:currentStreak,best_streak:bestStreak,total_play_ms:Math.round(totalPlayMs),updated_at:new Date().toISOString()};
+    await rest(`profiles?user_id=eq.${id}`,'PATCH',patch,'return=minimal');
+    await audit('REFRESH_PLAYER_STATS',b.userId,{runCount:runs.length,before,after:patch,preserved:{xp:before.xp,level:before.level,high_notes_tokens:before.high_notes_tokens}});
+    return json({ok:true,stats:patch,preserved:{xp:before.xp,level:before.level,high_notes_tokens:before.high_notes_tokens}});
+  }
   if(action==='save_note'){
     if(!b.userId)return json({error:'Missing userId'},400);const note=String(b.note||'').slice(0,4000);await rest('admin_player_notes?on_conflict=user_id','POST',{user_id:b.userId,note,updated_by:process.env.ADMIN_USERNAME||'admin',updated_at:new Date().toISOString()},'resolution=merge-duplicates,return=minimal');await audit('SAVE_PLAYER_NOTE',b.userId,{length:note.length});return json({ok:true});
   }
