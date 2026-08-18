@@ -11,6 +11,6 @@ export async function rest(path,method='GET',body,prefer='return=representation'
 export async function rpc(name,body={}){const {url,headers}=env();const r=await fetch(`${url}/rest/v1/rpc/${name}`,{method:'POST',headers,body:JSON.stringify(body)});const txt=await r.text();let data=null;try{data=txt?JSON.parse(txt):null}catch{data=txt}if(!r.ok)throw new Error(typeof data==='object'?(data.message||data.error||JSON.stringify(data)):String(data||r.statusText));return data}
 export async function audit(s,action,target=null,details={}){await rest('admin_audit_logs','POST',{admin_username:s.username,action,target_user_id:target,details:{...details,role:s.role}},'return=minimal')}
 export const permissions={owner:['*'],admin:['players','tokens','config','alerts','notes','suspend','refresh','export'],moderator:['players','alerts','notes','suspend','export'],analyst:['view','export']};
-export function can(s,perm){return !!s&&(permissions[s.role]?.includes('*')||permissions[s.role]?.includes(perm)||perm==='view')}
+export function can(s,perm){if(!s)return false;const role=String(s.role||'').trim().toLowerCase();return !!(permissions[role]?.includes('*')||permissions[role]?.includes(perm)||perm==='view')}
 export function hashPassword(password,salt=crypto.randomBytes(16).toString('hex')){const hash=crypto.scryptSync(password,salt,64).toString('hex');return{salt,hash}}
 export function verifyPassword(password,salt,hash){const got=crypto.scryptSync(password,salt,64);const want=Buffer.from(hash,'hex');return got.length===want.length&&crypto.timingSafeEqual(got,want)}

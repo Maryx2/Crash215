@@ -10,6 +10,8 @@ export default async req=>{
  if(process.env.ADMIN_USERNAME&&process.env.ADMIN_PASSWORD&&safeEq(username,process.env.ADMIN_USERNAME,64)&&safeEq(password,process.env.ADMIN_PASSWORD,128)){role='owner';canonical=process.env.ADMIN_USERNAME}
  else{try{const rows=await rest(`admin_accounts?select=username,password_salt,password_hash,role,active&username=eq.${encodeURIComponent(username)}&limit=1`);const a=rows?.[0];if(a?.active&&verifyPassword(password,a.password_salt,a.password_hash)){role=a.role;canonical=a.username;await rest(`admin_accounts?username=eq.${encodeURIComponent(a.username)}`,'PATCH',{last_login_at:new Date().toISOString()},'return=minimal')}}catch(e){return json({error:'Admin database unavailable: '+e.message},503)}}
  if(!role)return json({error:'Invalid administrator credentials'},401);
+ role=String(role).trim().toLowerCase();
+ if(!['owner','admin','moderator','analyst'].includes(role))return json({error:'Invalid administrator role'},403);
  const exp=Date.now()+8*60*60*1000,payload=`${canonical}|${role}|${exp}`,token=Buffer.from(payload).toString('base64url')+'.'+sign(payload);
  return json({ok:true,session:{username:canonical,role}},200,{'set-cookie':cookie(token,8*60*60)});
 };
