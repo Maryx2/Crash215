@@ -1,7 +1,33 @@
-import {json,requireRole,can,rest,rpc,audit,hashPassword} from './_admin-lib.mjs';
+import {json,requireRole,can,rest,rpc,audit,hashPassword,env} from './_admin-lib.mjs';
 export default async req=>{
  const s=requireRole(req);if(!s)return json({error:'Unauthorized'},401);if(req.method!=='POST')return json({error:'Method not allowed'},405);
  try{const b=await req.json();const action=b.action;
+
+  if(action==='update_player'){
+    if(!can(s,'edit_players'))return json({error:'Owner or Admin role required to edit players'},403);
+    if(!b.userId)return json({error:'Missing userId'},400);
+    const id=encodeURIComponent(b.userId);
+    const current=(await rest(`profiles?select=*&user_id=eq.${id}&limit=1`))?.[0];
+    if(!current)return json({error:'Player not found'},404);
+    const patch={};
+    if('username' in b){const v=String(b.username||'').trim();if(!/^[A-Za-z0-9_-]{3,20}$/.test(v))return json({error:'Username must be 3-20 characters using letters, numbers, _ or -'},400);patch.username=v;}
+    const ints=['xp','level','total_score','best_score','launches','ejects','failures','current_streak','best_streak'];
+    for(const k of ints){if(k in b){const v=Number(b[k]);if(!Number.isInteger(v)||v<0||v>1000000000)return json({error:`Invalid ${k}`},400);patch[k]=k==='level'?Math.max(1,v):v;}}
+    if('best_multiplier' in b){const v=Number(b.best_multiplier);if(!Number.isFinite(v)||v<1||v>1000)return json({error:'Invalid best multiplier'},400);patch.best_multiplier=Number(v.toFixed(2));}
+    const launches='launches' in patch?patch.launches:Number(current.launches||0),ejects='ejects' in patch?patch.ejects:Number(current.ejects||0),failures='failures' in patch?patch.failures:Number(current.failures||0);
+    if(ejects+failures!==launches)return json({error:'Launches must equal ejects + failures'},400);
+    if('best_score' in patch&&'total_score' in patch&&patch.best_score>patch.total_score)return json({error:'Best score cannot exceed total score'},400);
+    patch.updated_at=new Date().toISOString();
+    try{await rest(`profiles?user_id=eq.${id}`,'PATCH',patch,'return=minimal')}catch(e){if(String(e.message).toLowerCase().includes('duplicate'))return json({error:'That username is already taken'},409);throw e}
+    const before={},after={};for(const k of Object.keys(patch)){if(k==='updated_at')continue;before[k]=current[k];after[k]=patch[k]}
+    await audit(s,'EDIT_PLAYER',b.userId,{before,after});return json({ok:true,player:{...current,...patch}});
+  }
+  if(action==='update_player_email'){
+    if(s.role!=='owner')return json({error:'Owner role required to change login email'},403);
+    if(!b.userId)return json({error:'Missing userId'},400);const email=String(b.email||'').trim().toLowerCase();if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))return json({error:'Invalid email'},400);
+    const {url,headers}=env();const r=await fetch(`${url}/auth/v1/admin/users/${encodeURIComponent(b.userId)}`,{method:'PUT',headers,body:JSON.stringify({email,email_confirm:true})});const txt=await r.text();let d;try{d=txt?JSON.parse(txt):{}}catch{d={message:txt}}if(!r.ok)return json({error:d.msg||d.message||'Could not update email'},r.status);
+    await audit(s,'EDIT_PLAYER_EMAIL',b.userId,{email});return json({ok:true,email});
+  }
   if(action==='adjust_tokens'){
     if(!can(s,'tokens'))return json({error:'Forbidden'},403);const delta=Number(b.delta);if(!b.userId||!Number.isInteger(delta)||delta===0)return json({error:'Invalid token adjustment'},400);
     const balance=await rpc('admin_adjust_hnt',{p_user_id:b.userId,p_delta:delta,p_admin:s.username,p_reason:String(b.reason||'Admin adjustment').slice(0,200)});await audit(s,'ADJUST_HNT',b.userId,{delta,balance});return json({ok:true,balance});
