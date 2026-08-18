@@ -28,3 +28,8 @@
   from = "/api/admin/data"
   to = "/.netlify/functions/admin-data"
   status = 200
+
+[[redirects]]
+  from = "/api/admin/action"
+  to = "/.netlify/functions/admin-action"
+  status = 200
