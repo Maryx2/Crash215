@@ -9,7 +9,7 @@ export default async(req)=>{
  if(!authed(req))return json({error:'Unauthorized'},401);if(req.method!=='POST')return json({error:'Method not allowed'},405);
  try{const b=await req.json();const action=b.action;
   if(action==='update_config'){
-    const allowed=['cooldown_seconds','rocket_speed','acceleration','score_multiplier','xp_multiplier','shields_enabled','slowmo_enabled','maintenance_mode','announcement'];const patch={};for(const k of allowed)if(k in b.config)patch[k]=b.config[k];patch.updated_at=new Date().toISOString();
+    const allowed=['cooldown_seconds','rocket_speed','acceleration','score_multiplier','xp_multiplier','launch_token_cost','shields_enabled','slowmo_enabled','maintenance_mode','announcement'];const patch={};for(const k of allowed)if(k in b.config)patch[k]=b.config[k];patch.updated_at=new Date().toISOString();
     const current=(await rest('game_config?select=config_version&id=eq.1','GET'))?.[0];patch.config_version=Number(current?.config_version||1)+1;
     const data=await rest('game_config?id=eq.1','PATCH',patch);await audit('UPDATE_CONFIG',null,patch);return json({ok:true,config:data?.[0]||patch});
   }
@@ -18,6 +18,17 @@ export default async(req)=>{
   }
   if(action==='reset_player'){
     if(!b.userId)return json({error:'Missing userId'},400);await rest(`runs?user_id=eq.${encodeURIComponent(b.userId)}`,'DELETE',undefined,'return=minimal');await rest(`active_runs?user_id=eq.${encodeURIComponent(b.userId)}`,'DELETE',undefined,'return=minimal');await rest(`profiles?user_id=eq.${encodeURIComponent(b.userId)}`,'PATCH',{total_score:0,best_score:0,xp:0,level:1,launches:0,ejects:0,failures:0,best_multiplier:1,current_streak:0,best_streak:0,total_play_ms:0,updated_at:new Date().toISOString()},'return=minimal');await audit('RESET_PLAYER',b.userId,{clearedRuns:true});return json({ok:true});
+  }
+
+  if(action==='adjust_tokens'){
+    if(!b.userId)return json({error:'Missing userId'},400);
+    const delta=Number(b.delta);if(!Number.isInteger(delta)||delta===0||Math.abs(delta)>1000000)return json({error:'Invalid token adjustment'},400);
+    const rows=await rest(`profiles?select=high_notes_tokens&user_id=eq.${encodeURIComponent(b.userId)}&limit=1`,'GET');
+    if(!rows?.[0])return json({error:'Player not found'},404);
+    const before=Number(rows[0].high_notes_tokens||0),after=Math.max(0,before+delta);
+    await rest(`profiles?user_id=eq.${encodeURIComponent(b.userId)}`,'PATCH',{high_notes_tokens:after,updated_at:new Date().toISOString()},'return=minimal');
+    await audit('ADJUST_HIGH_NOTES_TOKENS',b.userId,{before,delta,after});
+    return json({ok:true,balance:after});
   }
   if(action==='save_note'){
     if(!b.userId)return json({error:'Missing userId'},400);const note=String(b.note||'').slice(0,4000);await rest('admin_player_notes?on_conflict=user_id','POST',{user_id:b.userId,note,updated_by:process.env.ADMIN_USERNAME||'admin',updated_at:new Date().toISOString()},'resolution=merge-duplicates,return=minimal');await audit('SAVE_PLAYER_NOTE',b.userId,{length:note.length});return json({ok:true});
