@@ -12,7 +12,7 @@ export default async req=>{const s=requireRole(req);if(!s)return json({error:'Un
  if(section==='admins'){if(s.role!=='owner')return json({error:'Owner role required'},403);return json({admins:await rest('admin_accounts?select=username,role,active,created_by,created_at,last_login_at&order=created_at.asc')});}
  if(section==='leaderboard')return json({players:await rest('profiles?select=user_id,username,total_score,best_score,level,launches,ejects,failures,best_multiplier,best_streak,high_notes_tokens,last_seen_at,is_suspended&order=total_score.desc&limit=100')});
  if(section==='audit')return json({logs:await rest('admin_audit_logs?select=*&order=created_at.desc&limit=500')});
- if(section==='config')return json({config:(await rest('game_config?select=*&id=eq.1'))?.[0]||null,locked:{extendedRunChance:5,standardMaxMultiplier:3}});
+ if(section==='config')return json({config:(await rest('game_config?select=*&id=eq.1'))?.[0]||null});
  if(section==='system'){let db=true,auth=true,dbError=null,authError=null;try{await rest('profiles?select=user_id&limit=1')}catch(e){db=false;dbError=e.message}try{await authUsers()}catch(e){auth=false;authError=e.message}return json({session:s,checks:{database:db,auth,serviceRole:!!process.env.SUPABASE_SERVICE_ROLE_KEY,sessionSecret:!!process.env.ADMIN_SESSION_SECRET},errors:{dbError,authError},now:new Date().toISOString()});}
  return json({error:'Unknown section'},400);
 }catch(e){return json({error:e.message||'Admin data error'},500)}};
