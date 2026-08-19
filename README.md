@@ -1,59 +1,98 @@
-# Starblast Arcade — Netlify + Supabase
+# Starblast Ops+ — Netlify + Supabase
 
-This version replaces device-only identities with real Supabase accounts and persistent cloud stats.
+This package includes the Starblast game plus an advanced `/admin` operations console.
 
-## Included
+## New admin capabilities
 
-- Email/password sign-up and login with Supabase Auth
-- Unique public username stored in `profiles`
-- Persistent score, XP, level, launches, ejects, failures, best score and best multiplier
-- Live global leaderboard using Supabase Realtime
-- Per-user run history table protected by Row Level Security
-- 10-second cooldown and slower arcade-style launch curve
-- Netlify-ready static deployment
-- `/api/config` Netlify Function so Supabase settings come from Netlify environment variables
+- Role-based administrators: **Owner, Admin, Moderator, Analyst**
+- Player directory and per-player run history
+- Give/take High Notes Tokens (HNT)
+- Immutable HNT transaction ledger with running balances and reasons
+- Rebuild player stats from stored runs
+- Live players, active flights and recent events (auto-refresh every 5 seconds)
+- HNT economy totals: issued, spent, net flow, total supply and average balance
+- Anomaly center with scans for impossible multipliers, score spikes, rapid runs, and elevated >3x rate
+- Versioned global game configuration
+- Admin audit trail
+- System health checks
+- Ops terminal
 
-## 1. Create/configure Supabase
+## Roles
 
-1. Create a Supabase project.
-2. Open **SQL Editor**.
-3. Run `supabase/schema.sql`.
-4. Under **Authentication > URL Configuration**, set your production Site URL to your Netlify URL.
-5. Decide whether to keep email confirmation enabled. If enabled, new players must confirm their email before first login.
+- **Owner** — all capabilities, including creating/disabling other admins.
+- **Admin** — players, HNT economy, config, alerts, notes and suspensions.
+- **Moderator** — player moderation, notes, alerts and read access.
+- **Analyst** — read-only dashboards and exports.
 
-## 2. Netlify environment variables
+The `ADMIN_USERNAME` / `ADMIN_PASSWORD` environment account is always treated as the bootstrap **Owner**.
 
-In Netlify, add:
+## Existing database upgrade
 
-```env
-SUPABASE_URL=https://YOUR_PROJECT.supabase.co
-SUPABASE_ANON_KEY=YOUR_SUPABASE_ANON_KEY
-```
+If your existing Starblast schema is already installed, run this file in **Supabase → SQL Editor**:
 
-These are the only variables required for player accounts and the leaderboard.
+`supabase/migrations/20260818_ops_advanced.sql`
 
-Do not put `SUPABASE_SERVICE_ROLE_KEY` in browser JavaScript. The supplied game does not require it.
+This adds the HNT ledger, admin accounts and anomaly alerts and replaces `start_run()` so launch token spends are written to the ledger automatically.
 
-## 3. Deploy
+## Fresh database
 
-Drag the project ZIP into Netlify or connect the folder to a Git repository. Netlify uses `netlify.toml`, serves the root directory, and deploys the `public-config` function automatically.
+Run:
 
-## Data model
+`supabase/full-schema-advanced.sql`
 
-- `auth.users`: Supabase-managed credentials
-- `profiles`: public username + career/leaderboard statistics
-- `runs`: private per-player run history
-- `record_run(...)`: database RPC that records a run and updates career stats atomically
+## Netlify environment variables
+
+Set these in **Netlify → Site configuration → Environment variables**:
+
+- `SUPABASE_URL`
+- `SUPABASE_ANON_KEY`
+- `SUPABASE_SERVICE_ROLE_KEY`
+- `ADMIN_USERNAME`
+- `ADMIN_PASSWORD`
+- `ADMIN_SESSION_SECRET`
+
+Redeploy after changing environment variables.
 
 ## Security notes
 
-RLS is enabled. Everyone can read leaderboard-safe profile rows. Players can read their own run history. The game records completed runs through an authenticated RPC.
+The Supabase service-role key is used only by Netlify Functions. Do not place it in `index.html`, `admin.html`, or public JavaScript. Admin tables have RLS enabled and no player-facing policies. Privileged admin writes go through server-side Functions using the service-role credential.
 
-This is an arcade implementation, not a real-money wagering system. If scores ever become financially valuable or redeemable, move crash generation and scoring to a trusted server instead of accepting client-reported run values.
+The HNT ledger is append-only from the application perspective: normal players have no direct access, and admin/game operations append transaction rows rather than editing historical entries.
+
+## Admin URL
+
+After deployment: `/admin`
 
 
-## Password signup notes
+## Global crash controls
+Owners/Admins can now configure the global crash distribution under **Game Control**: percent above threshold, threshold multiplier, standard min/max, and extended min/max. Use **Simulate 100,000 Runs** to preview the distribution before saving. All saved changes are versioned and audited. Existing databases should run `supabase/migrations/20260818_crash_controls.sql`.
 
-The Create Account screen now asks for **Create Password** and **Confirm Password**, requires at least 8 characters in the browser, and sends the chosen password to Supabase Auth.
 
-In Supabase Dashboard, make sure **Authentication -> Providers -> Email -> Allow new users to sign up** is enabled. If **Confirm Email** is enabled, users must click the confirmation email before logging in for the first time. Your Supabase project's configured password policy can be stricter than the frontend's 8-character minimum; the UI will surface that server error.
+## Admin settings permissions
+
+Game configuration can be saved only by `owner` and `admin` roles. The bootstrap account defined by `ADMIN_USERNAME` / `ADMIN_PASSWORD` always signs in as `owner`. `moderator` and `analyst` accounts are intentionally read-only for game settings. If the Save button says OWNER / ADMIN REQUIRED, sign out and use the bootstrap Owner account or have an Owner create/promote an Admin account.
+
+
+## Advanced Player Editor
+
+This build adds an advanced Player Control modal in `/admin`:
+
+- Edit public username (Owner/Admin)
+- Change login email (Owner only)
+- Manual career-stat overrides with validation (Owner/Admin)
+- Rebuild derived stats from run history
+- Give/take High Notes Tokens through the immutable HNT ledger
+- Suspend/unsuspend players
+- Private moderator/admin notes
+- Per-player HNT ledger and run-history CSV export
+- Every privileged change is written through `write_admin_audit_log()`
+
+### Required SQL upgrade
+Run `supabase/migrations/20260818_admin_center_advanced.sql` in the Supabase SQL Editor after your earlier migrations. This also fixes the audit-log permission path used by this build.
+
+
+## Arcade+ UI pass
+This build adds browser-generated arcade audio, a 3-2-1 recharge countdown, READY flash,
+pilot ranks, achievements, a scrolling live system feed, stronger danger-zone feedback,
+animated HNT spend feedback, and improved launch/eject/BANG effects. No new database
+migration is required for these UI features.
