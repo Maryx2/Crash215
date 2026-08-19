@@ -33,3 +33,12 @@ export const permissions={owner:['*'],admin:['players','edit_players','tokens','
 export function can(s,perm){if(!s)return false;const role=String(s.role||'').trim().toLowerCase();return !!(permissions[role]?.includes('*')||permissions[role]?.includes(perm)||perm==='view')}
 export function hashPassword(password,salt=crypto.randomBytes(16).toString('hex')){const hash=crypto.scryptSync(password,salt,64).toString('hex');return{salt,hash}}
 export function verifyPassword(password,salt,hash){const got=crypto.scryptSync(password,salt,64);const want=Buffer.from(hash,'hex');return got.length===want.length&&crypto.timingSafeEqual(got,want)}
+
+
+export function makeToken(username, role='owner', ttlSeconds=8*60*60){
+  if(!secret()) throw new Error('ADMIN_SESSION_SECRET is not configured');
+  const exp=Date.now()+Number(ttlSeconds||0)*1000;
+  const payload=`${String(username||'').trim().toLowerCase()}|${String(role||'owner').trim().toLowerCase()}|${exp}`;
+  const b64=Buffer.from(payload).toString('base64url');
+  return `${b64}.${sign(payload)}`;
+}
