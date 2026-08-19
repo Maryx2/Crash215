@@ -14,6 +14,13 @@ export default async req=>{const s=requireRole(req);if(!s)return json({error:'Un
  if(section==='audit')return json({logs:await rest('admin_audit_logs?select=*&order=created_at.desc&limit=500')});
  if(section==='config')return json({config:(await rest('game_config?select=*&id=eq.1'))?.[0]||null});
 
+
+ if(section==='crews'){
+   const [crews,members]=await Promise.all([rest('crews?select=*&order=season_score.desc&limit=500'),rest('crew_members?select=crew_id,user_id,role,joined_at&limit=5000')]);
+   const counts={};for(const m of members)counts[m.crew_id]=(counts[m.crew_id]||0)+1;
+   return json({crews:crews.map(c=>({...c,members:counts[c.id]||0}))});
+ }
+
  if(section==='events'){
    const events=await rest('game_events?select=*&order=created_at.desc&limit=200');
    return json({events});

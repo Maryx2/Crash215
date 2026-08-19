@@ -45,6 +45,22 @@ export default async req=>{
     if(!can(s,'notes'))return json({error:'Forbidden'},403);const note=String(b.note||'').slice(0,4000);await rest('admin_player_notes?on_conflict=user_id','POST',{user_id:b.userId,note,updated_by:s.username,updated_at:new Date().toISOString()},'resolution=merge-duplicates,return=minimal');await audit(s,'SAVE_NOTE',b.userId,{length:note.length});return json({ok:true});
   }
 
+
+  if(action==='send_inbox'){
+    if(!can(s,'players'))return json({error:'Insufficient role'},403);
+    const userId=String(b.userId||''),subject=String(b.subject||'Mission Control').trim().slice(0,120),message=String(b.message||'').trim().slice(0,500);
+    const hnt=Math.max(0,Math.trunc(Number(b.hnt_reward||0))),xp=Math.max(0,Math.trunc(Number(b.xp_reward||0)));
+    if(!userId||!subject)return json({error:'Player and subject required'},400);
+    await rest('player_inbox','POST',{user_id:userId,subject,message,hnt_reward:hnt,xp_reward:xp,created_by:s.username},'return=minimal');
+    await audit(s,'SEND_INBOX',userId,{subject,hnt,xp});return json({ok:true});
+  }
+  if(action==='distribute_season_rewards'){
+    if(s.role!=='owner')return json({error:'Owner role required'},403);
+    const seasonId=Number(b.seasonId);if(!Number.isInteger(seasonId))return json({error:'Invalid season'},400);
+    const count=await rest('rpc/distribute_season_rewards','POST',{p_season_id:seasonId,p_admin:s.username});
+    await audit(s,'DISTRIBUTE_SEASON_REWARDS',null,{seasonId,count});return json({ok:true,count});
+  }
+
   if(action==='create_event'){
     if(!can(s,'config'))return json({error:'Owner or Admin role required'},403);
     const type=String(b.event_type||''),title=String(b.title||'').trim().slice(0,80),message=String(b.message||'').trim().slice(0,300);
