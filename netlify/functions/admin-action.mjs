@@ -44,6 +44,34 @@ export default async req=>{
   if(action==='save_note'){
     if(!can(s,'notes'))return json({error:'Forbidden'},403);const note=String(b.note||'').slice(0,4000);await rest('admin_player_notes?on_conflict=user_id','POST',{user_id:b.userId,note,updated_by:s.username,updated_at:new Date().toISOString()},'resolution=merge-duplicates,return=minimal');await audit(s,'SAVE_NOTE',b.userId,{length:note.length});return json({ok:true});
   }
+
+  if(action==='create_event'){
+    if(!can(s,'config'))return json({error:'Owner or Admin role required'},403);
+    const type=String(b.event_type||''),title=String(b.title||'').trim().slice(0,80),message=String(b.message||'').trim().slice(0,300);
+    const allowed=['announcement','double_xp','free_launch','hnt_bonus','challenge'];
+    if(!allowed.includes(type)||!title)return json({error:'Invalid event'},400);
+    const starts=b.starts_at?new Date(b.starts_at):new Date(),ends=b.ends_at?new Date(b.ends_at):new Date(Date.now()+3600000);
+    if(!Number.isFinite(starts.getTime())||!Number.isFinite(ends.getTime())||ends<=starts)return json({error:'Invalid event time window'},400);
+    let value=Number(b.value??1);if(!Number.isFinite(value))value=1;
+    if(type==='double_xp'&&(value<1||value>5))return json({error:'XP multiplier must be 1–5'},400);
+    if(type==='hnt_bonus'&&(!Number.isInteger(value)||value<1||value>1000))return json({error:'HNT bonus must be 1–1000'},400);
+    const row={event_type:type,title,message,value,starts_at:starts.toISOString(),ends_at:ends.toISOString(),active:true,created_by:s.username};
+    await rest('game_events','POST',row,'return=minimal');await audit(s,'CREATE_EVENT',null,row);return json({ok:true});
+  }
+  if(action==='end_event'){
+    if(!can(s,'config'))return json({error:'Owner or Admin role required'},403);
+    await rest(`game_events?id=eq.${encodeURIComponent(b.id)}`,'PATCH',{active:false,ends_at:new Date().toISOString()},'return=minimal');
+    await audit(s,'END_EVENT',null,{eventId:b.id});return json({ok:true});
+  }
+  if(action==='save_milestone'){
+    if(!can(s,'config'))return json({error:'Owner or Admin role required'},403);
+    const title=String(b.title||'').trim().slice(0,100),description=String(b.description||'').trim().slice(0,300),metric=String(b.metric||'launches'),target=Number(b.target),reward=String(b.reward_label||'COMMUNITY REWARD').slice(0,100);
+    if(!title||!['launches','ejects','score'].includes(metric)||!Number.isInteger(target)||target<1)return json({error:'Invalid milestone'},400);
+    await rest('community_milestones?active=eq.true','PATCH',{active:false},'return=minimal');
+    const row={title,description,metric,target,reward_label:reward,active:true,created_by:s.username};
+    await rest('community_milestones','POST',row,'return=minimal');await audit(s,'SAVE_MILESTONE',null,row);return json({ok:true});
+  }
+
   if(action==='update_config'){
     if(!can(s,'config'))return json({error:`Game settings require Owner or Admin role. You are signed in as ${String(s.role||'unknown').toUpperCase()}.`},403);const allowed=['cooldown_seconds','rocket_speed','acceleration','score_multiplier','xp_multiplier','launch_token_cost','shields_enabled','slowmo_enabled','maintenance_mode','announcement','extended_run_percent','crash_threshold','standard_min_crash','standard_max_crash','extended_min_crash','extended_max_crash'];const patch={};for(const k of allowed)if(k in (b.config||{}))patch[k]=b.config[k];const pct=Number(patch.extended_run_percent);const threshold=Number(patch.crash_threshold);const smin=Number(patch.standard_min_crash),smax=Number(patch.standard_max_crash),emin=Number(patch.extended_min_crash),emax=Number(patch.extended_max_crash);if('extended_run_percent' in patch&&(pct<0||pct>100))return json({error:'Extended run percent must be 0–100.'},400);if('crash_threshold' in patch&&threshold<=1)return json({error:'Crash threshold must be above 1×.'},400);if(('standard_min_crash' in patch||'standard_max_crash' in patch)&&(!(smin>=1.01)||!(smax>=smin)))return json({error:'Standard crash range is invalid.'},400);if(('extended_min_crash' in patch||'extended_max_crash' in patch)&&(!(emin>=1.01)||!(emax>=emin)))return json({error:'Extended crash range is invalid.'},400);if(Number.isFinite(threshold)){if(Number.isFinite(smax)&&smax>threshold)return json({error:'Standard max cannot exceed the threshold.'},400);if(Number.isFinite(emin)&&emin<=threshold)return json({error:'Extended min must be above the threshold.'},400);}const current=(await rest('game_config?select=config_version&id=eq.1'))?.[0];patch.config_version=Number(current?.config_version||1)+1;patch.updated_at=new Date().toISOString();await rest('game_config?id=eq.1','PATCH',patch,'return=minimal');await audit(s,'UPDATE_CONFIG',null,patch);return json({ok:true,config:patch});
   }
