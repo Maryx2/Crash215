@@ -91,8 +91,29 @@ This build adds an advanced Player Control modal in `/admin`:
 Run `supabase/migrations/20260818_admin_center_advanced.sql` in the Supabase SQL Editor after your earlier migrations. This also fixes the audit-log permission path used by this build.
 
 
-## Arcade+ UI pass
-This build adds browser-generated arcade audio, a 3-2-1 recharge countdown, READY flash,
-pilot ranks, achievements, a scrolling live system feed, stronger danger-zone feedback,
-animated HNT spend feedback, and improved launch/eject/BANG effects. No new database
-migration is required for these UI features.
+## Live Airspace / Events / Records upgrade
+
+After all previous Starblast migrations, run:
+
+`supabase/migrations/20260819_live_airspace_events_records.sql`
+
+New systems:
+- Live Airspace: signed-in clients report current flight multiplier about once per second.
+- Admin Live Ops sees moving flight multipliers.
+- Admin-created Announcement, Double XP, Free Launch, HNT Bonus, and Challenge events.
+- Free Launch and event rewards are enforced by new versioned server RPCs.
+- Global player record board.
+- Community milestones.
+- Expanded cosmetic engine trails and pilot titles.
+- Event and Airspace Realtime subscriptions.
+
+This release uses `start_run_v2` and `record_run_v2` rather than replacing older RPC return types, preventing the PostgreSQL "cannot change return type of existing function" migration error.
+
+
+## NextGen Online
+Run `supabase/migrations/20260819_nextgen_online_systems.sql` after previous migrations.
+Adds server-authoritative crash checking, inbox rewards, crews, spectator mode, flight grades/near-miss feedback, and season reward tiers.
+
+
+## Admin login fix
+The bootstrap owner requires `ADMIN_USERNAME` and `ADMIN_PASSWORD` in Netlify Environment Variables. `ADMIN_SESSION_SECRET` is still recommended, but this build can derive a session signing secret from the bootstrap credentials if it is omitted. After changing Netlify variables, trigger a fresh deploy. Supabase admin DB access accepts either `SUPABASE_SERVICE_ROLE_KEY` or the newer `SUPABASE_SECRET_KEY`.
