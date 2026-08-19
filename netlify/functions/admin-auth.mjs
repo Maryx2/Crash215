@@ -20,22 +20,11 @@ function supabaseConfig(){
   };
 }
 
-async function signInWithSupabase(email,password){
-  const {url,anon}=supabaseConfig();
-  if(!url||!anon) throw new Error('SUPABASE_URL or SUPABASE_ANON_KEY is missing in Netlify.');
-  const r=await fetch(`${url}/auth/v1/token?grant_type=password`,{
-    method:'POST',
-    headers:{
-      apikey:anon,
-      Authorization:`Bearer ${anon}`,
-      'content-type':'application/json'
-    },
-    body:JSON.stringify({email,password})
-  });
-  let data={};
-  try{data=await r.json()}catch{}
-  if(!r.ok) throw new Error(data?.msg||data?.error_description||data?.error||'Invalid email or password');
-  return data;
+function validAdminCredentials(email,password){
+  const allowed=allowedEmails();
+  const expected=process.env.ADMIN_SHARED_PASSWORD||'highnotes1234';
+  return allowed.includes(String(email||'').trim().toLowerCase())
+    && String(password||'')===expected;
 }
 
 export default async(req)=>{
@@ -46,12 +35,13 @@ export default async(req)=>{
     return json({
       ok:false,
       session:null,
-      auth_mode:'supabase_email',
+      auth_mode:'fixed_admin_credentials',
       allowed_emails:allowedEmails(),
       config:{
         supabase_url:!!cfg.url,
         supabase_anon_key:!!cfg.anon,
-        admin_session_secret:!!process.env.ADMIN_SESSION_SECRET
+        admin_session_secret:!!process.env.ADMIN_SESSION_SECRET,
+        shared_password_override:!!process.env.ADMIN_SHARED_PASSWORD
       }
     },401);
   }
@@ -75,14 +65,11 @@ export default async(req)=>{
       return json({error:'This email is not authorized for Mission Control.'},403);
     }
 
-    const auth=await signInWithSupabase(email,password);
-    const actualEmail=String(auth?.user?.email||email).trim().toLowerCase();
-
-    if(!allowedEmails().includes(actualEmail)){
-      return json({error:'This Supabase account is not authorized for Mission Control.'},403);
+    if(!validAdminCredentials(email,password)){
+      return json({error:'Invalid admin email or password.'},401);
     }
 
-    // Both requested admin emails are Owners so all current console controls work.
+    const actualEmail=email;
     const role='owner';
     const token=makeToken(actualEmail,role,8*60*60);
 
